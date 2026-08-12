@@ -101,7 +101,7 @@ def adversarial_critique(response: str) -> bool:
         futures = [executor.submit(call_llm, model, 0.1, critique_prompt, "You are a harsh critic.") for model in MODELS]
         results = [f.result() for f in concurrent.futures.as_completed(futures)]
     
-    no_flaw_count = sum(1 for r in results if "NO_FLAW" in r)
+    no_flaw_count = sum(1 for r in results if r.strip() == "NO_FLAW")
     required = max(1, len(MODELS) * 2 // 3)
     return no_flaw_count >= required
 
