@@ -77,7 +77,7 @@ def call_llm(model: str, temperature: float, prompt: str, system_prompt: str = "
             result = json.loads(response.read().decode("utf-8"))
             return result["choices"][0]["message"]["content"]
     except Exception as e:
-        return f"Error: {e}"
+        return None
 
 def generate_candidates(prompt: str) -> list:
     """Runs the prompt across all models and temperatures in parallel."""
@@ -89,7 +89,9 @@ def generate_candidates(prompt: str) -> list:
         }
         for future in concurrent.futures.as_completed(future_to_config):
             try:
-                candidates.append(future.result())
+                res = future.result()
+                if res is not None:
+                    candidates.append(res)
             except Exception:
                 pass
     return candidates
@@ -99,7 +101,7 @@ def adversarial_critique(response: str) -> bool:
     critique_prompt = f"Critique this response. If it is generally correct and safe, output exactly 'NO_FLAW'. Response: {response}"
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(MODELS)) as executor:
         futures = [executor.submit(call_llm, model, 0.1, critique_prompt, "You are a harsh critic.") for model in MODELS]
-        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+        results = [f.result() for f in concurrent.futures.as_completed(futures) if f.result() is not None]
     
     no_flaw_count = sum(1 for r in results if r.strip() == "NO_FLAW")
     required = max(1, len(MODELS) * 2 // 3)
@@ -170,6 +172,8 @@ def run_dictatorship(prompt: str):
         }
         for future in concurrent.futures.as_completed(future_to_config):
             result = future.result()
+            if result is None:
+                continue
             if not constitution_veto(result):
                 return result, 100
             else:
@@ -180,6 +184,8 @@ def run_theocracy(prompt: str):
     """Constitution veto is absolute and highlighted."""
     print("[Theocracy] Seeking divine answer...")
     response = call_llm(MODELS[0], 0.1, prompt)
+    if response is None:
+        return "FAILED: LLM API error.", 0
     if constitution_veto(response):
         print("[Constitution] VETO: Response contained forbidden string.")
         return "BLOCKED BY CONSTITUTION.", 0
@@ -189,7 +195,9 @@ def run_monarchy(prompt: str):
     """Sovereign + court of 3 advisors."""
     print("[Monarchy] Sovereign is deliberating...")
     sovereign_response = call_llm(MODELS[0], 0.5, prompt)
-    
+    if sovereign_response is None:
+        return "FAILED: Sovereign LLM API error.", 0
+        
     if constitution_veto(sovereign_response):
         return "BLOCKED BY CONSTITUTION.", 0
         
@@ -197,7 +205,7 @@ def run_monarchy(prompt: str):
     advisors_prompts = f"The Sovereign decreed: '{sovereign_response}'. Do you agree? If yes, output 'AGREE'."
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         futures = [executor.submit(call_llm, MODELS[0], 0.8, advisors_prompts) for _ in range(3)]
-        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+        results = [f.result() for f in concurrent.futures.as_completed(futures) if f.result() is not None]
         
     agree_count = sum(1 for r in results if "AGREE" in r)
     confidence = 25 + (25 * agree_count)
